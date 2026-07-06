@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WatchyDict Photo Converter</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#111;color:#e0e0e0;font-family:'Courier New',monospace;padding:20px;max-width:500px;margin:0 auto}
+h1{font-size:1.3em;margin-bottom:8px;text-align:center}
+p.sub{text-align:center;color:#888;font-size:12px;margin-bottom:16px}
+canvas{display:block;margin:12px auto;border:1px solid #444;image-rendering:pixelated;background:#000}
+label,button{display:block;width:100%;padding:12px;margin:8px 0;font-size:16px;background:#333;color:#fff;border:1px solid #555;border-radius:6px;cursor:pointer;text-align:center;font-family:inherit}
+label:active,button:active{background:#555}
+button.dl{background:#1a3a1a;border-color:#2a5a2a;color:#6a6}
+button:disabled{opacity:0.4;cursor:default}
+input[type=file]{display:none}
+select,input[type=number]{width:100%;padding:8px;margin:4px 0;background:#222;color:#fff;border:1px solid #444;border-radius:6px;font-family:inherit;font-size:14px}
+.row{display:flex;gap:8px;align-items:center;margin:8px 0}
+.row label{width:auto;flex:0 0 auto;padding:0;margin:0;border:none;background:none;font-size:14px}
+.row select,.row input{flex:1}
+.status{text-align:center;margin:8px 0;color:#888;font-size:13px}
+</style>
+</head>
+<body>
+<h1>&#128247; WatchyDict Photo Converter</h1>
+<p class="sub">Converts photos to 200x200 1-bit .bin files for SPIFFS</p>
+
+<label for="fileIn">Choose Photo</label>
+<input type="file" id="fileIn" accept="image/*">
+
+<div class="row">
+    <label>Dither:</label>
+    <select id="dither">
+        <option value="fs">Floyd-Steinberg</option>
+        <option value="bayer">Bayer 4x4</option>
+        <option value="threshold">Threshold</option>
+    </select>
+</div>
+<div class="row">
+    <label>Brightness:</label>
+    <input type="range" id="brightness" min="-100" max="100" value="0" style="flex:1">
+    <span id="brVal" style="width:30px;text-align:right">0</span>
+</div>
+<div class="row">
+    <label>Contrast:</label>
+    <input type="range" id="contrast" min="-100" max="100" value="0" style="flex:1">
+    <span id="coVal" style="width:30px;text-align:right">0</span>
+</div>
+<div class="row">
+    <label>File #:</label>
+    <input type="number" id="imgNum" min="0" max="9" value="0" style="max-width:80px">
+    <span style="color:#888;font-size:12px">→ img_00.bin to img_09.bin</span>
+</div>
+
+<canvas id="preview" width="200" height="200"></canvas>
+
+<button class="dl" id="downloadBtn" disabled>Download .bin</button>
+<div class="status" id="status">Select a photo to start</div>
+
+<script>
+const cv=document.getElementById('preview'), ctx=cv.getContext('2d');
+const fileIn=document.getElementById('fileIn');
+const ditherSel=document.getElementById('dither');
+const brightness=document.getElementById('brightness');
+const contrast=document.getElementById('contrast');
+const brVal=document.getElementById('brVal');
+const coVal=document.getElementById('coVal');
+const dlBtn=document.getElementById('downloadBtn');
+const status=document.getElementById('status');
+const imgNum=document.getElementById('imgNum');
+
+let sourceImg=null, bitmapData=null, imgReady=false;
+
+fileIn.addEventListener('change', e=>{
+    const file=e.target.files[0]; if(!file) return;
+    imgReady=false;
+    status.textContent='Loading image...';
+    const reader=new FileReader();
+    reader.onload=()=>{
+        sourceImg=new Image();
+        sourceImg.onload=()=>{imgReady=true; processImage();};
+        sourceImg.onerror=()=>{status.textContent='Error: could not load image. Try JPG or PNG.';};
+        sourceImg.src=reader.result;
+    };
+    reader.readAsDataURL(file);
+});
+
+ditherSel.addEventListener('change', processImage);
+brightness.addEventListener('input', ()=>{brVal.textContent=brightness.value; processImage();});
+contrast.addEventListener('input', ()=>{coVal.textContent=contrast.value; processImage();});
+
+function processImage(){
+    if(!sourceImg||!imgReady) return;
+    const img=sourceImg;
+
+    // Center crop to square, resize to 200x200
+    const s=Math.min(img.width,img.height);
+    const sx=(img.width-s)/2, sy=(img.height-s)/2;
+    ctx.fillStyle='white';
+    ctx.fillRect(0,0,200,200);
+    ctx.drawImage(img,sx,sy,s,s,0,0,200,200);
+
+    const id=ctx.getImageData(0,0,200,200);
+    const px=id.data;
+    const gray=new Float32Array(40000);
+
+    // To grayscale
+    for(let i=0;i<40000;i++)
+        gray[i]=px[i*4]*0.299+px[i*4+1]*0.587+px[i*4+2]*0.114;
+
+    // Brightness + contrast
+    const br=parseFloat(brightness.value);
+    const co=parseFloat(contrast.value);
+    const cf=(259*(co+255))/(255*(259-co));
+    for(let i=0;i<40000;i++){
+        let v=gray[i]+br;
+        v=cf*(v-128)+128;
+        gray[i]=Math.max(0,Math.min(255,v));
+    }
+
+    // Dither
+    const mode=ditherSel.value;
+    if(mode==='fs'){
+        for(let y=0;y<200;y++) for(let x=0;x<200;x++){
+            const i=y*200+x, old=gray[i], nv=old<128?0:255;
+            gray[i]=nv; const err=old-nv;
+            if(x+1<200) gray[i+1]+=err*7/16;
+            if(y+1<200){
+                if(x>0) gray[(y+1)*200+x-1]+=err*3/16;
+                gray[(y+1)*200+x]+=err*5/16;
+                if(x+1<200) gray[(y+1)*200+x+1]+=err*1/16;
+            }
+        }
+    } else if(mode==='bayer'){
+        const m=[[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]];
+        for(let y=0;y<200;y++) for(let x=0;x<200;x++){
+            const t=(m[y%4][x%4]/16)*255;
+            gray[y*200+x]=gray[y*200+x]>t?255:0;
+        }
+    } else {
+        for(let i=0;i<40000;i++) gray[i]=gray[i]<128?0:255;
+    }
+
+    // Preview
+    for(let i=0;i<40000;i++){px[i*4]=px[i*4+1]=px[i*4+2]=gray[i];px[i*4+3]=255;}
+    ctx.putImageData(id,0,0);
+
+    // Pack to 1-bit (MSB first, 1=black) matching GxEPD2 drawBitmap format
+    bitmapData=new Uint8Array(5000);
+    for(let i=0;i<40000;i++){
+        if(gray[i]===0) bitmapData[Math.floor(i/8)]|=(0x80>>(i%8));
+    }
+
+    dlBtn.disabled=false;
+    status.textContent='Ready — adjust settings or download';
+}
+
+dlBtn.addEventListener('click', ()=>{
+    if(!bitmapData) return;
+    const num=parseInt(imgNum.value)||0;
+    const fname='img_'+String(num).padStart(2,'0')+'.bin';
+
+    const blob=new Blob([bitmapData],{type:'application/octet-stream'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=fname;
+    a.click();
+    URL.revokeObjectURL(a.href);
+
+    status.textContent='Downloaded '+fname+' — put it in your data/ folder';
+    // Auto-increment for next photo
+    imgNum.value=Math.min(9,num+1);
+});
+</script>
+</body>
+</html>
