@@ -55,7 +55,12 @@ tz=est,edt      # optional labels for the sky header
 ```
 
 The sky chart, sunrise/sunset, and the clock's DST handling all follow
-this file. Then:
+this file.
+
+Photos: open the photo converter (HTML — runs in any browser, nothing to
+install), drop an image in, and it dithers it down to the 200x200 1-bit
+format the watch displays. Save the results as `img_00.bin` through
+`img_09.bin` (5,000 bytes each, up to 10). Then:
 
 ```
 python tools/spiffsgen.py 0x340000 data spiffs.bin --page-size 256 --block-size 4096
