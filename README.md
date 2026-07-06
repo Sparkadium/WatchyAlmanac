@@ -26,6 +26,7 @@ partitions.csv    640KB app / 3.25MB SPIFFS
 dictionary.cdb    GENERATED (prepare_dict_fat.py)
 gazetteer.cdb     GENERATED (make_gazetteer.py)
 problems.bin      tsumego pack (tsumego_pack.py)
+photo_convert.html 1-bit photo converter
 tools/            build scripts + spiffsgen.py
 ```
 
