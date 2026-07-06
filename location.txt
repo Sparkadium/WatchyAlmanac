@@ -1,0 +1,10 @@
+# WatchyDict location config — put this in your SPIFFS data folder.
+# Delete the file entirely to use the built-in default (Ottawa).
+lat=45.3475
+lon=-75.7566
+# standard-time UTC offset in hours (e.g. -5 Eastern, 0 London, 1 Berlin, 9 Tokyo)
+utc=-5
+# DST rule: NA (2nd Sun Mar - 1st Sun Nov) | EU (last Sun Mar - last Sun Oct) | NONE
+dst=NA
+# optional timezone labels shown on the sky header: standard,daylight
+tz=est,edt
